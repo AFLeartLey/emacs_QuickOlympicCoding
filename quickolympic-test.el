@@ -59,9 +59,13 @@
   (let ((t8 (make-quickolympic-test :input "1" :rtcode 0 :output ""
                                     :correct-answer "5")))
     (should (null (quickolympic--test-status t8))))
+  ;; empty correct answer -> treated as not accepted -> nil
+  (let ((t9 (make-quickolympic-test :input "1" :rtcode 0 :output "5"
+                                    :correct-answer "")))
+    (should (null (quickolympic--test-status t9))))
   ;; not run -> nil
-  (let ((t9 (make-quickolympic-test :input "1")))
-    (should (null (quickolympic--test-status t9)))))
+  (let ((t10 (make-quickolympic-test :input "1")))
+    (should (null (quickolympic--test-status t10)))))
 
 (ert-deftest quickolympic-run-failed-test ()
   (should (quickolympic--run-failed-p 1))
@@ -77,6 +81,16 @@
 (ert-deftest quickolympic-format-runtime-test ()
   (should (equal (quickolympic--format-runtime 3) "3ms"))
   (should (equal (quickolympic--format-runtime 1500) "1.5s")))
+
+;; ---------------------------------------------------------------------------
+;; Output normalization
+;; ---------------------------------------------------------------------------
+
+(ert-deftest quickolympic-normalize-output-test ()
+  (should (equal (quickolympic--normalize-output "a\r\nb\rc") "a\nbc"))
+  (should (equal (quickolympic--normalize-output "5\r\n") "5\n"))
+  (should (equal (quickolympic--normalize-output "5\n") "5\n"))
+  (should (equal (quickolympic--normalize-output nil) "")))
 
 ;; ---------------------------------------------------------------------------
 ;; Persistence round-trip
@@ -120,6 +134,24 @@
       (should (= (length tests) 1))
       (should (equal (quickolympic-test-correct-answer (car tests)) "5")))
     (delete-file tf)
+    (delete-file src)))
+
+(ert-deftest quickolympic-no-clobber-test ()
+  ;; A fresh session must load persisted tests before the first mutating
+  ;; command (C-c q n), otherwise it would overwrite them.
+  (let* ((src (make-temp-file "quickolympic-clobber" nil ".cpp"))
+         (s1 (make-quickolympic-session :source-file src)))
+    (setf (quickolympic-session-tests s1)
+          (list (make-quickolympic-test :input "1\n")))
+    (quickolympic--save-tests s1)
+    (clrhash quickolympic--sessions)   ; simulate a fresh session
+    (with-temp-buffer
+      (setq buffer-file-name src)
+      (quickolympic-new-test))
+    (let ((tests (quickolympic-session-tests
+                  (quickolympic--get-session src))))
+      (should (= (length tests) 2)))
+    (delete-file (quickolympic--tests-file src))
     (delete-file src)))
 
 (provide 'quickolympic-test)

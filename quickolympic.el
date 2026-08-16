@@ -37,6 +37,13 @@
 (require 'subr-x)
 (require 'quickolympic-process)
 
+(defun quickolympic--normalize-output (s)
+  "Normalize program output: CRLF -> LF and strip lone CRs.
+Windows console programs often write CRLF even to a pipe, which garbles the
+panel display and breaks output comparisons."
+  (replace-regexp-in-string "\r\n" "\n"
+    (replace-regexp-in-string "\r" "" (or s ""))))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Customization group
 ;;; ---------------------------------------------------------------------------
@@ -184,15 +191,31 @@ REPLACES it, so an old wrong answer is never kept as correct.
                                  collect (make-quickolympic-test
                                           :input input
                                           :correct-answer
-                                          (or (quickolympic--json-get item "correct-answer")
-                                              ;; backward compat: old plural key
-                                              (car (quickolympic--json-strlist
-                                                    (quickolympic--json-get item "correct-answers"))))
+                                          (let ((c (quickolympic--normalize-output
+                                                    (or (quickolympic--json-get item "correct-answer")
+                                                        ;; backward compat: old plural key
+                                                        (car (quickolympic--json-strlist
+                                                              (quickolympic--json-get item "correct-answers")))))))
+                                            ;; An empty correct answer means "not accepted".
+                                            (and (not (string-empty-p c)) c))
                                           :wrong-answers
-                                          (quickolympic--json-strlist
-                                           (quickolympic--json-get item "wrong-answers"))))))
+                                          (mapcar #'quickolympic--normalize-output
+                                                  (quickolympic--json-strlist
+                                                   (quickolympic--json-get item "wrong-answers")))))))
             (setf (quickolympic-session-tests session) tests))
         (error (message "quickolympic: failed to parse tests file %s" tf))))))
+
+(defun quickolympic--ensure-tests-loaded (session)
+  "Load tests from disk into SESSION if it has none yet.
+Prevents a fresh session from clobbering persisted testcases on the first
+mutating command (e.g. `C-c q n' without a prior run)."
+  (when (and session (null (quickolympic-session-tests session)))
+    (quickolympic--load-tests session)))
+
+(defun quickolympic--ensure-loaded-tests (session)
+  "Ensure SESSION's tests are loaded from disk, then return them."
+  (quickolympic--ensure-tests-loaded session)
+  (and session (quickolympic-session-tests session)))
 
 (defun quickolympic--save-tests (session)
   "Atomically write SESSION's tests to the sidecar file."
@@ -254,10 +277,12 @@ REPLACES it, so an old wrong answer is never kept as correct.
   "Window displaying SESSION's panel, or nil."
   (get-buffer-window (quickolympic--panel-buffer session)))
 
-(defun quickolympic--show-panel (session)
-  "Display and render SESSION's panel without stealing focus."
+(defun quickolympic--show-panel (session &optional limit)
+  "Display and render SESSION's panel without stealing focus.
+LIMIT is passed to `quickolympic--render'."
+  (quickolympic--ensure-tests-loaded session)
   (let ((buf (quickolympic--panel-buffer session)))
-    (quickolympic--render session)
+    (quickolympic--render session limit)
     (unless (quickolympic--panel-window session)
       (display-buffer-in-side-window
        buf `((side . right)
@@ -273,24 +298,30 @@ REPLACES it, so an old wrong answer is never kept as correct.
 ;;; Rendering
 ;;; ---------------------------------------------------------------------------
 
+(defun quickolympic--has-correct-answer (test)
+  "Non-nil if TEST has a non-empty correct answer."
+  (let ((c (quickolympic-test-correct-answer test)))
+    (and (stringp c) (not (string-empty-p c)))))
+
 (defun quickolympic--test-status (test)
   "Return TEST's verdict string, or nil if not judged.
 One of: Accepted / Rejected / Time Limit / Runtime Error.
-A test is Rejected when it has a correct answer but the current output
-differs from it."
+A test without a (non-empty) accepted correct answer shows no verdict;
+only Time Limit / Runtime Error are always shown."
   (let ((out (quickolympic-test-output test))
-        (correct (quickolympic-test-correct-answer test)))
+        (correct (quickolympic-test-correct-answer test))
+        (has-correct (quickolympic--has-correct-answer test)))
     (cond
      ((eq (quickolympic-test-rtcode test) 'timeout) "Time Limit")
      ((or (and (numberp (quickolympic-test-rtcode test))
                (/= (quickolympic-test-rtcode test) 0))
           (eq (quickolympic-test-rtcode test) 'signal))
       "Runtime Error")
-     ((and correct (equal out correct)) "Accepted")
+     ((and has-correct (equal out correct)) "Accepted")
      ((member out (quickolympic-test-wrong-answers test)) "Rejected")
      ;; A test with no output yet has no verdict; only judge a non-empty
-     ;; output against the correct answer.
-     ((and correct (not (string-empty-p out))
+     ;; output against a real (non-empty) correct answer.
+     ((and has-correct (not (string-empty-p out))
            (not (equal out correct)))
       "Rejected")
      (t nil))))
@@ -345,11 +376,11 @@ accept/decline buttons (a running test has no verdict yet)."
                              (quickolympic--test-status-face status)))))
     (insert "\n")
     (unless (quickolympic-test-folded test)
-      (insert (propertize "── Input ──\n" 'face 'bold))
+      (insert (propertize "--- Input ---\n" 'face 'bold))
       (insert (quickolympic-test-input test))
       (unless (string-suffix-p "\n" (quickolympic-test-input test))
         (insert "\n"))
-      (insert (propertize "── Output ──\n" 'face 'bold))
+      (insert (propertize "--- Output ---\n" 'face 'bold))
       (insert (quickolympic-test-output test))
       (unless (string-suffix-p "\n" (quickolympic-test-output test))
         (insert "\n"))
@@ -377,8 +408,10 @@ accept/decline buttons (a running test has no verdict yet)."
                       'follow-link t)
   (insert "\n"))
 
-(defun quickolympic--render (session)
-  "Fully rebuild the panel from the data model, preserving point."
+(defun quickolympic--render (session &optional limit)
+  "Rebuild the panel from the data model, preserving point.
+With LIMIT non-nil, render only the header plus the first LIMIT tests
+(used while running tests one by one); the footer is omitted then."
   (with-current-buffer (quickolympic--panel-buffer session)
     (let ((inhibit-read-only t)
           (saved-point (point))
@@ -388,10 +421,12 @@ accept/decline buttons (a running test has no verdict yet)."
       (quickolympic--render-header session)
       (cl-loop for test in (quickolympic-session-tests session)
                for i from 0
+               while (or (null limit) (< i limit))
                do (let ((idx i))
                     (quickolympic--render-test
                      session test idx (and running-idx (= running-idx idx)))))
-      (quickolympic--render-footer session)
+      (when (null limit)
+        (quickolympic--render-footer session))
       (goto-char (min saved-point (point-max)))
       (set-buffer-modified-p nil))))
 
@@ -474,7 +509,8 @@ With SINGLE non-nil, run only the test at IDX."
                    (let ((code (car result))
                          (out (cdr result)))
                      (setf (quickolympic-test-rtcode test) code)
-                     (setf (quickolympic-test-output test) out)
+                     (setf (quickolympic-test-output test)
+                           (quickolympic--normalize-output out))
                      (setf (quickolympic-test-runtime test)
                            (quickolympic--format-runtime
                             (* 1000 (- (float-time) t0))))
@@ -484,7 +520,7 @@ With SINGLE non-nil, run only the test at IDX."
                            (equal (quickolympic--test-status test) "Accepted"))
                      (setf (quickolympic-session-process session) nil)
                      (quickolympic--save-tests session)
-                     (quickolympic--render session)
+                     (quickolympic--render session (1+ idx))
                      (cond
                       (single (quickolympic--finish-run-all session))
                       ((and quickolympic-stop-on-fail
@@ -494,7 +530,7 @@ With SINGLE non-nil, run only the test at IDX."
                nil
                quickolympic-test-timeout))
         ;; Reflect the running state: the running test shows no verdict.
-        (quickolympic--render session)))))
+        (quickolympic--render session (1+ idx))))))
 
 (defun quickolympic--format-runtime (ms)
   "Format a runtime in milliseconds for display."
@@ -532,8 +568,9 @@ Call at the start of a run so no stale verdict from a previous run is shown."
     (when (and (processp proc) (process-live-p proc))
       (user-error "A test is already running; kill it first (C-c q k)"))))
 
-(defun quickolympic--compile-then (session on-success)
-  "Compile SESSION; call ON-SUCCESS on success, else show the error."
+(defun quickolympic--compile-then (session on-success &optional limit)
+  "Compile SESSION; call ON-SUCCESS on success, else show the error.
+LIMIT is passed to `quickolympic--render'."
   (quickolympic--compile session
     (lambda (result)
       (let ((code (car result))
@@ -544,9 +581,9 @@ Call at the start of a run so no stale verdict from a previous run is shown."
                     (if (string-empty-p out)
                         (format "Compile failed (exit code %s)" code)
                       out))
-              (quickolympic--render session))
+              (quickolympic--render session limit))
           (setf (quickolympic-session-compile-output session) nil)
-          (quickolympic--render session)
+          (quickolympic--render session limit)
           (funcall on-success))))))
 
 ;;;###autoload
@@ -559,10 +596,16 @@ Call at the start of a run so no stale verdict from a previous run is shown."
     (cl-incf (quickolympic-session-run-id session))
     (quickolympic--load-tests session)
     (quickolympic--clear-verdicts session)
-    (quickolympic--show-panel session)
+    ;; Drop a stale compile-error message from a previous run before
+    ;; refreshing the panel.
+    (setf (quickolympic-session-compile-output session) nil)
+    ;; Clear the panel and show only the file name first; tests are rendered
+    ;; one by one from top to bottom as they run.
+    (quickolympic--show-panel session 0)
     (quickolympic--compile-then session
       (lambda ()
-        (quickolympic--run-from session 0)))))
+        (quickolympic--run-from session 0))
+      0)))
 
 (defun quickolympic-run-current-test (&optional idx)
   "Run the current (or given IDX) test."
@@ -572,17 +615,17 @@ Call at the start of a run so no stale verdict from a previous run is shown."
     (unless session (user-error "No file associated with the current buffer"))
     (quickolympic--ensure-idle session)
     (cl-incf (quickolympic-session-run-id session))
-    ;; Load from disk only if the session has no tests yet.  Reloading would
-    ;; rebuild every test struct and discard the other tests' verdicts.
-    (when (null (quickolympic-session-tests session))
-      (quickolympic--load-tests session))
+    (quickolympic--ensure-tests-loaded session)
+    ;; Drop a stale compile-error message from a previous run.
+    (setf (quickolympic-session-compile-output session) nil)
     ;; Only the target test is re-run; keep other tests' verdicts.
     (let ((target (nth i (quickolympic-session-tests session))))
       (when target (quickolympic--clear-test-verdict target)))
-    (quickolympic--show-panel session)
+    (quickolympic--show-panel session 0)
     (quickolympic--compile-then session
       (lambda ()
-        (quickolympic--run-from session i t)))))
+        (quickolympic--run-from session i t))
+      0)))
 
 (defun quickolympic-kill-process ()
   "Kill the currently running test process."
@@ -605,6 +648,7 @@ Call at the start of a run so no stale verdict from a previous run is shown."
   (interactive)
   (let ((session (quickolympic--current-session)))
     (unless session (user-error "No file associated with the current buffer"))
+    (quickolympic--ensure-tests-loaded session)
     (setf (quickolympic-session-tests session)
           (append (quickolympic-session-tests session)
                   (list (make-quickolympic-test :input ""))))
@@ -618,7 +662,9 @@ Call at the start of a run so no stale verdict from a previous run is shown."
   (interactive)
   (let* ((session (quickolympic--current-session))
          (i (or idx (quickolympic--test-at-point session)))
-         (test (nth i (quickolympic-session-tests session))))
+         (test (and session
+                    (progn (quickolympic--ensure-tests-loaded session)
+                           (nth i (quickolympic-session-tests session))))))
     (unless test (user-error "Test does not exist"))
     (let ((buf (generate-new-buffer (format "*quickolympic test %d*" (1+ i)))))
       (with-current-buffer buf
@@ -627,19 +673,27 @@ Call at the start of a run so no stale verdict from a previous run is shown."
         (setq-local quickolympic--edit-index i)
         (insert (quickolympic-test-input test))
         (goto-char (point-min)))
-      (pop-to-buffer buf))))
+      (if (window-parameter (selected-window) 'window-side)
+          ;; Current window is the side panel; open the edit buffer in a
+          ;; regular window.
+          (pop-to-buffer buf)
+        ;; Reuse the current (source) window.  After save + kill the window
+        ;; returns to the source buffer instead of leaving a lingering window
+        ;; (especially in terminal emacs -nw).
+        (switch-to-buffer buf)))))
 
 (defun quickolympic-delete-test (&optional idx)
   "Delete test IDX."
   (interactive)
   (let* ((session (quickolympic--current-session))
-         (i (or idx (quickolympic--test-at-point session)))
-         (tests (quickolympic-session-tests session)))
-    (when (and session (nth i tests))
-      (setf (quickolympic-session-tests session)
-            (append (cl-subseq tests 0 i) (cl-subseq tests (1+ i))))
-      (quickolympic--save-tests session)
-      (quickolympic--render session))))
+         (i (or idx (quickolympic--test-at-point session))))
+    (when session (quickolympic--ensure-tests-loaded session))
+    (let ((tests (quickolympic-session-tests session)))
+      (when (and session (nth i tests))
+        (setf (quickolympic-session-tests session)
+              (append (cl-subseq tests 0 i) (cl-subseq tests (1+ i))))
+        (quickolympic--save-tests session)
+        (quickolympic--render session)))))
 
 (defun quickolympic-swap-test-up (&optional idx)
   "Swap test IDX with the one above."
@@ -653,7 +707,7 @@ Call at the start of a run so no stale verdict from a previous run is shown."
 
 (defun quickolympic--swap-tests (i dir)
   (let* ((session (quickolympic--current-session))
-         (tests (quickolympic-session-tests session))
+         (tests (quickolympic--ensure-loaded-tests session))
          (j (+ i dir)))
     (when (and session (nth i tests) (nth j tests))
       (cl-rotatef (nth i tests) (nth j tests))
@@ -691,7 +745,7 @@ Call at the start of a run so no stale verdict from a previous run is shown."
   (interactive)
   (let* ((session (quickolympic--current-session))
          (i (or idx (quickolympic--test-at-point session)))
-         (test (nth i (quickolympic-session-tests session))))
+         (test (nth i (quickolympic--ensure-loaded-tests session))))
     (when (and session test)
       (let ((out (quickolympic-test-output test)))
         (unless (string-empty-p out)
@@ -710,7 +764,7 @@ Call at the start of a run so no stale verdict from a previous run is shown."
   (interactive)
   (let* ((session (quickolympic--current-session))
          (i (or idx (quickolympic--test-at-point session)))
-         (test (nth i (quickolympic-session-tests session))))
+         (test (nth i (quickolympic--ensure-loaded-tests session))))
     (when (and session test)
       (let ((out (quickolympic-test-output test)))
         (unless (string-empty-p out)
@@ -743,14 +797,16 @@ Call at the start of a run so no stale verdict from a previous run is shown."
          (buf (current-buffer))
          (test (and session idx
                     (nth idx (quickolympic-session-tests session)))))
-    (if test
-        (progn
-          (setf (quickolympic-test-input test)
-                (buffer-substring-no-properties (point-min) (point-max)))
-          (quickolympic--save-tests session)
-          (quickolympic--render session))
-      (message "quickolympic: test no longer exists or changed; save aborted"))
-    (when (buffer-live-p buf) (kill-buffer buf))))
+    (unwind-protect
+        (if test
+            (progn
+              (setf (quickolympic-test-input test)
+                    (buffer-substring-no-properties (point-min) (point-max)))
+              (quickolympic--save-tests session)
+              (quickolympic--render session))
+          (message "quickolympic: test no longer exists or changed; save aborted"))
+      ;; Always close the edit buffer, even if saving/rendering above errors.
+      (when (buffer-live-p buf) (kill-buffer buf)))))
 
 (defun quickolympic--edit-cancel ()
   "Cancel editing and close the buffer."
