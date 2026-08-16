@@ -1,0 +1,17 @@
+# Emacs byte-code and backups
+*.elc
+*~
+
+# Build artifacts and test sidecar files
+*.exe
+*.tests
+a.out
+__pycache__/
+
+# Not part of the published plugin
+reference/
+memory/
+.claude/
+SOUL.md
+USER.md
+DESIGN.md
