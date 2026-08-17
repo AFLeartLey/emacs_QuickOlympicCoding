@@ -22,7 +22,7 @@ Emacs 版 [FastOlympicCoding](https://github.com/Jatana/FastOlympicCoding)
 | 编译错误展示 | ✅ 已实现 | 红色显示在面板顶部 |
 | 超时杀进程 | ✅ 已实现 | `quickolympic-test-timeout` 控制 |
 | 测试持久化 | ✅ 已实现 | JSON 副文件 `<源码>.tests`，重启恢复 |
-| 进程终止 | ✅ 已实现 | `C-c C-q k`，Windows/Linux 平台分派 |
+| 进程终止 | ✅ 已实现 | `C-c M-q k`，Windows/Linux 平台分派 |
 | 交互题（comint） | ⏳ 规划 | 尚未实现 |
 | 对拍 Stress | ⏳ 规划 | 尚未实现 |
 | 实时 lint（flymake） | ⏳ 规划 | 尚未实现 |
@@ -64,9 +64,9 @@ Emacs 版 [FastOlympicCoding](https://github.com/Jatana/FastOlympicCoding)
 
 假设你打开 `A.cpp`：
 
-1. **新增测试**：`C-c C-q n` → 弹出编辑缓冲区，粘贴样例输入，`C-c C-c` 保存。
+1. **新增测试**：`C-c M-q n` → 弹出编辑缓冲区，粘贴样例输入，`C-c C-c` 保存。
    重复添加多个测试。测试会存入 `A.cpp.tests`。
-2. **编译并运行**：`C-c C-q r` → 右侧出现测试面板，逐个编译运行全部测试。
+2. **编译并运行**：`C-c M-q r` → 右侧出现测试面板，逐个编译运行全部测试。
 3. **判定**：在面板看每个测试的输出——命中该样例的 `correct-answer` → 自动 Accepted
    并折叠；有 `correct-answer` 但结果不同 → 自动 Rejected；无 `correct-answer` 时用
    `a` 接受 / `x` 拒绝（accept 会**覆盖**旧 correct-answer，decline 会清除它）。
@@ -75,16 +75,16 @@ Emacs 版 [FastOlympicCoding](https://github.com/Jatana/FastOlympicCoding)
 
 ## 按键绑定
 
-### 源码缓冲区（`quickolympic-mode`，前缀 `C-c C-q`）
+### 源码缓冲区（`quickolympic-mode`，前缀 `C-c M-q`）
 
 | 按键 | 命令 | 功能 |
 |---|---|---|
-| `C-c C-q r` | `quickolympic-run` | 编译并运行全部测试 |
-| `C-c C-q R` | `quickolympic-run-current-test` | 只运行当前测试 |
-| `C-c C-q p` | `quickolympic-toggle-panel` | 显示 / 隐藏测试侧边栏 |
-| `C-c C-q n` | `quickolympic-new-test` | 新增测试（随后编辑输入） |
-| `C-c C-q e` | `quickolympic-edit-test` | 编辑当前测试 |
-| `C-c C-q k` | `quickolympic-kill-process` | 终止运行中的进程 |
+| `C-c M-q r` | `quickolympic-run` | 编译并运行全部测试 |
+| `C-c M-q R` | `quickolympic-run-current-test` | 只运行当前测试 |
+| `C-c M-q p` | `quickolympic-toggle-panel` | 显示 / 隐藏测试侧边栏 |
+| `C-c M-q n` | `quickolympic-new-test` | 新增测试（随后编辑输入） |
+| `C-c M-q e` | `quickolympic-edit-test` | 编辑当前测试 |
+| `C-c M-q k` | `quickolympic-kill-process` | 终止运行中的进程 |
 
 ### 测试面板（`quickolympic-test-mode`）
 
