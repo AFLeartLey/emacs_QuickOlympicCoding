@@ -138,7 +138,7 @@
 
 (ert-deftest quickolympic-no-clobber-test ()
   ;; A fresh session must load persisted tests before the first mutating
-  ;; command (C-c q n), otherwise it would overwrite them.
+  ;; command (C-c C-q n), otherwise it would overwrite them.
   (let* ((src (make-temp-file "quickolympic-clobber" nil ".cpp"))
          (s1 (make-quickolympic-session :source-file src)))
     (setf (quickolympic-session-tests s1)

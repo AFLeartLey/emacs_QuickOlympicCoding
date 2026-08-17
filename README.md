@@ -24,7 +24,7 @@ Built with Deepseek v4 Flash.
 | Compile error display | ✅ Done | shown in red at the top of the panel |
 | Per-test timeout | ✅ Done | controlled by `quickolympic-test-timeout` |
 | Test persistence | ✅ Done | JSON sidecar `<source>.tests`, restored on restart |
-| Kill running process | ✅ Done | `C-c q k`, platform-aware (Windows/Linux) |
+| Kill running process | ✅ Done | `C-c C-q k`, platform-aware (Windows/Linux) |
 | Interactive problems (comint) | ⏳ Planned | not yet implemented |
 | Stress testing | ⏳ Planned | not yet implemented |
 | Real-time lint (flymake) | ⏳ Planned | not yet implemented |
@@ -66,9 +66,9 @@ Built with Deepseek v4 Flash.
 
 Assume you have `A.cpp` open:
 
-1. **Add a test**: `C-c q n` → an edit buffer opens; paste the sample input and
+1. **Add a test**: `C-c C-q n` → an edit buffer opens; paste the sample input and
    press `C-c C-c`. Repeat to add more tests. Tests are stored in `A.cpp.tests`.
-2. **Compile & run**: `C-c q r` → the test panel appears on the right and all
+2. **Compile & run**: `C-c C-q r` → the test panel appears on the right and all
    tests are compiled and run one by one.
 3. **Judge**: look at each test's output in the panel — if it matches the test's
    `correct-answer` it is automatically **Accepted** and folded; if a
@@ -80,16 +80,16 @@ Assume you have `A.cpp` open:
 
 ## Key Bindings
 
-### Source buffer (`quickolympic-mode`, prefix `C-c q`)
+### Source buffer (`quickolympic-mode`, prefix `C-c C-q`)
 
 | Key | Command | Action |
 |---|---|---|
-| `C-c q r` | `quickolympic-run` | compile & run all tests |
-| `C-c q R` | `quickolympic-run-current-test` | run only the current test |
-| `C-c q p` | `quickolympic-toggle-panel` | show / hide the test panel |
-| `C-c q n` | `quickolympic-new-test` | add a new test (then edit its input) |
-| `C-c q e` | `quickolympic-edit-test` | edit the current test |
-| `C-c q k` | `quickolympic-kill-process` | kill the running process |
+| `C-c C-q r` | `quickolympic-run` | compile & run all tests |
+| `C-c C-q R` | `quickolympic-run-current-test` | run only the current test |
+| `C-c C-q p` | `quickolympic-toggle-panel` | show / hide the test panel |
+| `C-c C-q n` | `quickolympic-new-test` | add a new test (then edit its input) |
+| `C-c C-q e` | `quickolympic-edit-test` | edit the current test |
+| `C-c C-q k` | `quickolympic-kill-process` | kill the running process |
 
 ### Test panel (`quickolympic-test-mode`)
 

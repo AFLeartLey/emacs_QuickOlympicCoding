@@ -14,9 +14,9 @@
 ;;
 ;; Quick start:
 ;;   M-x quickolympic-global-mode        ; enable globally
-;;   C-c q p                             ; toggle the test side panel
-;;   C-c q r                             ; compile & run all tests
-;;   C-c q n                             ; add a new test (then edit input)
+;;   C-c C-q p                             ; toggle the test side panel
+;;   C-c C-q r                             ; compile & run all tests
+;;   C-c C-q n                             ; add a new test (then edit input)
 ;; Panel keys: n new / e edit / r run current / R run all / a accept /
 ;;             x reject / d delete / s up / S down / k kill / g re-render /
 ;;             q close panel
@@ -208,7 +208,7 @@ REPLACES it, so an old wrong answer is never kept as correct.
 (defun quickolympic--ensure-tests-loaded (session)
   "Load tests from disk into SESSION if it has none yet.
 Prevents a fresh session from clobbering persisted testcases on the first
-mutating command (e.g. `C-c q n' without a prior run)."
+mutating command (e.g. `C-c C-q n' without a prior run)."
   (when (and session (null (quickolympic-session-tests session)))
     (quickolympic--load-tests session)))
 
@@ -566,7 +566,7 @@ Call at the start of a run so no stale verdict from a previous run is shown."
   "Signal an error if a test is already running."
   (let ((proc (quickolympic-session-process session)))
     (when (and (processp proc) (process-live-p proc))
-      (user-error "A test is already running; kill it first (C-c q k)"))))
+      (user-error "A test is already running; kill it first (C-c C-q k)"))))
 
 (defun quickolympic--compile-then (session on-success &optional limit)
   "Compile SESSION; call ON-SUCCESS on success, else show the error.
@@ -826,11 +826,11 @@ LIMIT is passed to `quickolympic--render'."
     (define-key map "n" #'quickolympic-new-test)
     (define-key map "e" #'quickolympic-edit-test)
     map)
-  "QuickOlympic prefix keymap (C-c q).")
+  "QuickOlympic prefix keymap (C-c C-q).")
 
 (defvar quickolympic-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c q") quickolympic-prefix-map)
+    (define-key map (kbd "C-c C-q") quickolympic-prefix-map)
     map)
   "QuickOlympic minor mode keymap.")
 
