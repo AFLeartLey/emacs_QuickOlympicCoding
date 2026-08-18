@@ -197,6 +197,24 @@
     (delete-file (quickolympic--tests-file src))
     (delete-file src)))
 
+(ert-deftest quickolympic-fold-moves-point-to-header-test ()
+  ;; Folding a test must move point to its [Test N] header.
+  (let* ((src (make-temp-file "quickolympic-fold" nil ".cpp"))
+         (session (make-quickolympic-session :source-file src)))
+    (setf (quickolympic-session-tests session)
+          (list (make-quickolympic-test :input (make-string 200 ?a) :folded nil)))
+    (let ((buf (quickolympic--panel-buffer session)))
+      (quickolympic--render session nil)
+      (with-current-buffer buf
+        (goto-char (point-max))     ; cursor far from the header
+        (quickolympic--toggle-fold session 0)
+        (let ((header-pos (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "[Test 1]" nil t)
+                            (match-beginning 0))))
+          (should (= (point) header-pos)))))
+    (delete-file src)))
+
 (provide 'quickolympic-test)
 
 ;;; quickolympic-test.el ends here

@@ -724,13 +724,25 @@ With NEW non-nil, mark the edit so cancelling removes the new test."
       (quickolympic--save-tests session)
       (quickolympic--render session))))
 
+(defun quickolympic--goto-test-header (session i)
+  "Move point to the [Test N] header of test I in the panel."
+  (with-current-buffer (quickolympic--panel-buffer session)
+    (goto-char (point-min))
+    (let ((target (format "[Test %d]" (1+ i))))
+      (when (search-forward target nil t)
+        (goto-char (match-beginning 0))))))
+
 (defun quickolympic--toggle-fold (session i)
-  "Fold or unfold test I."
+  "Fold or unfold test I.  After folding, move point to the test header."
   (let ((test (nth i (quickolympic-session-tests session))))
     (when test
       (setf (quickolympic-test-folded test)
             (not (quickolympic-test-folded test)))
-      (quickolympic--render session))))
+      (quickolympic--render session)
+      ;; When collapsing, place point on the [Test N] header so the cursor is
+      ;; not left misaligned inside the (now hidden) body.
+      (when (quickolympic-test-folded test)
+        (quickolympic--goto-test-header session i)))))
 
 (defun quickolympic-toggle-fold-at-point ()
   "Toggle fold/unfold of the test at point (or the nearest test above)."
