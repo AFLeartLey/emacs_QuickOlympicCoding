@@ -154,6 +154,49 @@
     (delete-file (quickolympic--tests-file src))
     (delete-file src)))
 
+(ert-deftest quickolympic-edit-save-clears-verdict-on-input-change-test ()
+  ;; Saving a substantively changed input must clear verdicts/run results.
+  (let* ((src (make-temp-file "quickolympic-edit" nil ".cpp"))
+         (session (make-quickolympic-session :source-file src)))
+    (setf (quickolympic-session-tests session)
+          (list (make-quickolympic-test :input "2 3\n" :correct-answer "5"
+                                        :wrong-answers '("7") :rtcode 0
+                                        :output "5\n" :runtime "10ms")))
+    (let ((buf (get-buffer-create "*qo-edit-save-test*")))
+      (with-current-buffer buf
+        (quickolympic-test-edit-mode)
+        (setq-local quickolympic--current-session session)
+        (setq-local quickolympic--edit-index 0)
+        (insert "5 7\n"))
+      (with-current-buffer buf (quickolympic--edit-save))
+      (let ((t0 (nth 0 (quickolympic-session-tests session))))
+        (should (equal (quickolympic-test-input t0) "5 7\n"))
+        (should (null (quickolympic-test-correct-answer t0)))
+        (should (null (quickolympic-test-wrong-answers t0)))
+        (should (null (quickolympic-test-rtcode t0)))
+        (should (string-empty-p (quickolympic-test-output t0)))))
+    (delete-file (quickolympic--tests-file src))
+    (delete-file src)))
+
+(ert-deftest quickolympic-edit-save-keeps-verdict-on-unchanged-test ()
+  ;; Saving an unchanged input must keep the correct answer.
+  (let* ((src (make-temp-file "quickolympic-edit2" nil ".cpp"))
+         (session (make-quickolympic-session :source-file src)))
+    (setf (quickolympic-session-tests session)
+          (list (make-quickolympic-test :input "2 3\n" :correct-answer "5")))
+    (let ((buf (get-buffer-create "*qo-edit-keep-test*")))
+      (with-current-buffer buf
+        (quickolympic-test-edit-mode)
+        (setq-local quickolympic--current-session session)
+        (setq-local quickolympic--edit-index 0)
+        (insert "2 3\n"))   ; unchanged
+      (with-current-buffer buf (quickolympic--edit-save))
+      (let ((t0 (nth 0 (quickolympic-session-tests session))))
+        (should (equal (quickolympic-test-input t0) "2 3\n"))
+        (should (equal (quickolympic-test-correct-answer t0) "5"))))
+    (delete-file (quickolympic--tests-file src))
+    (delete-file src)))
+
 (provide 'quickolympic-test)
 
 ;;; quickolympic-test.el ends here

@@ -655,10 +655,11 @@ LIMIT is passed to `quickolympic--render'."
     (let ((i (1- (length (quickolympic-session-tests session)))))
       (quickolympic--save-tests session)
       (quickolympic--render session)
-      (quickolympic-edit-test i))))
+      (quickolympic-edit-test i t))))
 
-(defun quickolympic-edit-test (&optional idx)
-  "Edit the input of test IDX in a separate buffer."
+(defun quickolympic-edit-test (&optional idx new)
+  "Edit the input of test IDX in a separate buffer.
+With NEW non-nil, mark the edit so cancelling removes the new test."
   (interactive)
   (let* ((session (quickolympic--current-session))
          (i (or idx (quickolympic--test-at-point session)))
@@ -671,16 +672,25 @@ LIMIT is passed to `quickolympic--render'."
         (quickolympic-test-edit-mode)
         (setq-local quickolympic--current-session session)
         (setq-local quickolympic--edit-index i)
+        (setq-local quickolympic--edit-new new)
         (insert (quickolympic-test-input test))
         (goto-char (point-min)))
-      (if (window-parameter (selected-window) 'window-side)
-          ;; Current window is the side panel; open the edit buffer in a
-          ;; regular window.
-          (pop-to-buffer buf)
-        ;; Reuse the current (source) window.  After save + kill the window
-        ;; returns to the source buffer instead of leaving a lingering window
-        ;; (especially in terminal emacs -nw).
-        (switch-to-buffer buf)))))
+      (let* ((orig-win (selected-window))
+             (from-panel (window-parameter orig-win 'window-side)))
+        (if from-panel
+            ;; Current window is the side panel; open the edit buffer in a
+            ;; regular window.
+            (pop-to-buffer buf)
+          ;; Reuse the current (source) window.  After save + kill the window
+          ;; returns to the source buffer instead of leaving a lingering
+          ;; window.
+          (switch-to-buffer buf))
+        ;; `pop-to-buffer' returns the buffer, so fetch the actual window.
+        (let ((win (get-buffer-window buf)))
+          (with-current-buffer buf
+            (setq-local quickolympic--edit-window win)
+            (setq-local quickolympic--edit-new-window
+                        (and win (not (eq win orig-win))))))))))
 
 (defun quickolympic-delete-test (&optional idx)
   "Delete test IDX."
@@ -783,6 +793,17 @@ LIMIT is passed to `quickolympic--render'."
 (defvar-local quickolympic--edit-index nil
   "Test index bound to the edit buffer.")
 
+(defvar-local quickolympic--edit-new nil
+  "Non-nil when this edit buffer was opened for a newly-added test.
+Cancel (C-c C-k) then removes the new test entirely.")
+
+(defvar-local quickolympic--edit-window nil
+  "Window displaying the edit buffer.")
+
+(defvar-local quickolympic--edit-new-window nil
+  "Non-nil when the edit buffer was displayed in a new window that should be
+closed when the edit finishes.")
+
 (define-derived-mode quickolympic-test-edit-mode fundamental-mode "QOlyEdit"
   "Edit a test input. C-c C-c saves, C-c C-k cancels."
   (setq-local buffer-read-only nil)
@@ -795,23 +816,50 @@ LIMIT is passed to `quickolympic--render'."
   (let* ((session quickolympic--current-session)
          (idx quickolympic--edit-index)
          (buf (current-buffer))
+         (win quickolympic--edit-window)
+         (new-win-p quickolympic--edit-new-window)
          (test (and session idx
                     (nth idx (quickolympic-session-tests session)))))
     (unwind-protect
         (if test
-            (progn
-              (setf (quickolympic-test-input test)
-                    (buffer-substring-no-properties (point-min) (point-max)))
+            (let ((new-input (buffer-substring-no-properties (point-min) (point-max))))
+              ;; If the input substantively changed, the previous verdicts and
+              ;; run results are no longer valid.
+              (unless (string-equal (quickolympic-test-input test) new-input)
+                (quickolympic--clear-test-verdict test)
+                (setf (quickolympic-test-correct-answer test) nil)
+                (setf (quickolympic-test-wrong-answers test) nil))
+              (setf (quickolympic-test-input test) new-input)
               (quickolympic--save-tests session)
               (quickolympic--render session))
           (message "quickolympic: test no longer exists or changed; save aborted"))
       ;; Always close the edit buffer, even if saving/rendering above errors.
-      (when (buffer-live-p buf) (kill-buffer buf)))))
+      (when (buffer-live-p buf) (kill-buffer buf))
+      ;; Close the window that was created for this edit (if any).
+      (when (and new-win-p (window-live-p win))
+        (ignore-errors (delete-window win))))))
 
 (defun quickolympic--edit-cancel ()
-  "Cancel editing and close the buffer."
+  "Cancel editing and close the buffer.
+If this was a newly-added test, remove it from the session."
   (interactive)
-  (kill-buffer (current-buffer)))
+  (let* ((session quickolympic--current-session)
+         (idx quickolympic--edit-index)
+         (new-p quickolympic--edit-new)
+         (buf (current-buffer))
+         (win quickolympic--edit-window)
+         (new-win-p quickolympic--edit-new-window))
+    (when (and new-p session idx
+               (nth idx (quickolympic-session-tests session)))
+      (let ((tests (quickolympic-session-tests session)))
+        (setf (quickolympic-session-tests session)
+              (append (cl-subseq tests 0 idx) (cl-subseq tests (1+ idx))))
+        (quickolympic--save-tests session)
+        (quickolympic--render session)))
+    (when (buffer-live-p buf) (kill-buffer buf))
+    ;; Close the window that was created for this edit (if any).
+    (when (and new-win-p (window-live-p win))
+      (ignore-errors (delete-window win)))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Minor mode and auto-enable
